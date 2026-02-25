@@ -59,6 +59,11 @@ const LaneCard = ({
           <span className="text-xs text-muted-foreground">
             📊 Queue: <span className="font-mono">{lane.queueLength}</span>
           </span>
+          {isActive && (
+            <span className="text-[10px] text-primary font-mono">
+              ⏱ Green ≈ {lane.vehicleCount}s
+            </span>
+          )}
         </div>
       </div>
       {isActive && (

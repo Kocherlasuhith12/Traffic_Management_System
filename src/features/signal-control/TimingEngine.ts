@@ -1,6 +1,6 @@
 // ─── TimingEngine.ts ───
 // Calculates adaptive green signal durations based on vehicle density.
-// Ensures fairness and prevents starvation.
+// Green time is directly proportional to vehicle count — never exceeds it.
 
 import { SignalTiming, VehicleCountEntry, MLPrediction } from '@/types/traffic';
 
@@ -8,16 +8,14 @@ export interface TimingConfig {
   minGreenTime: number;   // seconds
   maxGreenTime: number;   // seconds
   yellowTime: number;     // seconds
-  baseGreenTime: number;  // seconds (used when count is moderate)
   vehiclesPerSecond: number; // how many vehicles clear per second of green
 }
 
 const DEFAULT_TIMING_CONFIG: TimingConfig = {
-  minGreenTime: 10,
-  maxGreenTime: 60,
+  minGreenTime: 5,
+  maxGreenTime: 45,
   yellowTime: 3,
-  baseGreenTime: 20,
-  vehiclesPerSecond: 0.5,
+  vehiclesPerSecond: 1,
 };
 
 export class TimingEngine {
@@ -28,29 +26,36 @@ export class TimingEngine {
   }
 
   /**
-   * RULE-BASED: Calculate green duration proportional to vehicle count.
-   * Higher density → longer green, capped by min/max.
+   * RULE-BASED: Green duration = vehicleCount / vehiclesPerSecond.
+   * Directly proportional — green time never exceeds vehicle count.
+   * Capped by min/max for safety.
    */
   calculateGreenDuration(vehicleCount: number): number {
-    const needed = vehicleCount / this.config.vehiclesPerSecond;
+    // 1 vehicle ≈ 1 second of green (at default vehiclesPerSecond = 1)
+    const needed = Math.ceil(vehicleCount / this.config.vehiclesPerSecond);
     const duration = Math.max(
       this.config.minGreenTime,
-      Math.min(this.config.maxGreenTime, this.config.baseGreenTime + needed * 0.5)
+      Math.min(this.config.maxGreenTime, needed)
     );
-    return Math.round(duration);
+    return duration;
   }
 
   /**
    * ML-ASSISTED: Adjust green duration using ML prediction.
    * Adds/subtracts time based on predicted traffic trend.
+   * Final value still capped so it doesn't exceed vehicle count + adjustment.
    */
   calculateAdaptiveDuration(vehicleCount: number, prediction?: MLPrediction): number {
     let baseDuration = this.calculateGreenDuration(vehicleCount);
 
     if (prediction) {
-      // ML adjustment: if traffic is predicted to increase, proactively extend green
       baseDuration += prediction.recommendedAdjustment;
-      baseDuration = Math.max(this.config.minGreenTime, Math.min(this.config.maxGreenTime, baseDuration));
+      // Never exceed vehicle count + predicted incoming vehicles
+      const upperBound = Math.min(
+        this.config.maxGreenTime,
+        vehicleCount + Math.max(0, prediction.recommendedAdjustment)
+      );
+      baseDuration = Math.max(this.config.minGreenTime, Math.min(upperBound, baseDuration));
     }
 
     return Math.round(baseDuration);
@@ -58,7 +63,6 @@ export class TimingEngine {
 
   /**
    * Calculate timing for all lanes, ensuring fairness.
-   * Distributes green time proportionally but guarantees minimum for all.
    */
   calculateAllTimings(counts: VehicleCountEntry[], predictions?: MLPrediction[]): SignalTiming[] {
     const totalVehicles = counts.reduce((sum, c) => sum + c.count, 0);
