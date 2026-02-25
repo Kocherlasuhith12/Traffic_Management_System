@@ -15,14 +15,18 @@ const Dashboard = () => {
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
             <h1 className="text-lg font-bold text-foreground tracking-tight">
-              Smart Traffic Control
+              ML-Based Intelligent Traffic Management
             </h1>
             <span className="text-xs font-mono text-muted-foreground">
-              v2.0 — Adaptive
+              v2.1 — Adaptive + Detection
             </span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Scenario Selector */}
+            {sim.emergencyActive && (
+              <span className="text-xs px-2 py-1 rounded-md bg-destructive/20 text-destructive border border-destructive/30 animate-pulse font-medium">
+                🚨 Emergency
+              </span>
+            )}
             <select
               value={sim.activeScenario}
               onChange={e => sim.setScenario(e.target.value)}
@@ -32,7 +36,6 @@ const Dashboard = () => {
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-            {/* Play/Pause */}
             <button
               onClick={sim.toggleSimulation}
               className={`text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${
@@ -75,6 +78,14 @@ const Dashboard = () => {
           metrics={sim.metrics}
           predictions={sim.predictions}
           historicalData={sim.historicalData}
+          detections={sim.detections}
+          anomalies={sim.anomalies}
+          trafficPatterns={sim.trafficPatterns}
+          vehicleDistribution={sim.vehicleDistribution}
+          averageSpeed={sim.averageSpeed}
+          currentPattern={sim.currentPattern}
+          emergencyActive={sim.emergencyActive}
+          emergencyLane={sim.emergencyLane}
         />
       </main>
     </div>

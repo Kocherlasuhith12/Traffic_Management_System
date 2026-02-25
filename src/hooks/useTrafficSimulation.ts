@@ -9,6 +9,12 @@ import { createSignalController1, createSignalController2 } from '@/services/sig
 import { getTrafficMetrics } from '@/services/trafficService';
 import { generatePredictions, getMLInsightSummary } from '@/services/mlService';
 import { trafficScenarios } from '@/data/scenarios';
+import {
+  DetectionEvent, AnomalyRecord, TrafficPattern,
+  generateDetectionBatch, detectAnomalies, generateTrafficPatterns,
+  getVehicleTypeDistribution, getAverageSpeed, getCurrentPatternPrediction,
+  VehicleType,
+} from '@/data/trafficDetectionDataset';
 
 export interface SimulationState {
   intersections: Intersection[];
@@ -19,6 +25,15 @@ export interface SimulationState {
   activeScenario: string;
   historicalData: HistoricalDataPoint[];
   elapsedSeconds: number;
+  // New detection data
+  detections: DetectionEvent[];
+  anomalies: AnomalyRecord[];
+  trafficPatterns: TrafficPattern[];
+  vehicleDistribution: Record<VehicleType, number>;
+  averageSpeed: number;
+  currentPattern: TrafficPattern | null;
+  emergencyActive: boolean;
+  emergencyLane: string | null;
 }
 
 export const useTrafficSimulation = () => {
@@ -26,6 +41,7 @@ export const useTrafficSimulation = () => {
   const [state, setState] = useState<SimulationState>(() => {
     const intersections = createDefaultIntersections();
     const historical = generateHistoricalData();
+    const patterns = generateTrafficPatterns();
     return {
       intersections,
       metrics: intersections.map(i => getTrafficMetrics(i)),
@@ -35,6 +51,14 @@ export const useTrafficSimulation = () => {
       activeScenario: 'normal',
       historicalData: historical,
       elapsedSeconds: 0,
+      detections: [],
+      anomalies: [],
+      trafficPatterns: patterns,
+      vehicleDistribution: { car: 0, truck: 0, bus: 0, motorcycle: 0, bicycle: 0, emergency: 0 },
+      averageSpeed: 0,
+      currentPattern: getCurrentPatternPrediction(patterns),
+      emergencyActive: false,
+      emergencyLane: null,
     };
   });
 
@@ -74,6 +98,47 @@ export const useTrafficSimulation = () => {
           mlInsight = getMLInsightSummary(predictions);
         }
 
+        // Generate detection events every 3 seconds
+        let detections = prev.detections;
+        let anomalies = prev.anomalies;
+        let vehicleDistribution = prev.vehicleDistribution;
+        let averageSpeed = prev.averageSpeed;
+        let emergencyActive = prev.emergencyActive;
+        let emergencyLane = prev.emergencyLane;
+
+        if (prev.elapsedSeconds % 3 === 0) {
+          const allDetections: DetectionEvent[] = [];
+          const newAnomalies: AnomalyRecord[] = [];
+
+          updatedIntersections[0].lanes.forEach(lane => {
+            const batch = generateDetectionBatch(lane.id, lane.vehicleCount);
+            allDetections.push(...batch);
+            const laneAnomalies = detectAnomalies(batch, lane.id);
+            newAnomalies.push(...laneAnomalies);
+          });
+
+          detections = [...prev.detections.slice(-50), ...allDetections];
+          anomalies = [...prev.anomalies, ...newAnomalies].slice(-50);
+          vehicleDistribution = getVehicleTypeDistribution(allDetections);
+          averageSpeed = getAverageSpeed(allDetections);
+
+          // Check for emergency vehicles
+          const emergencyAnomaly = newAnomalies.find(a => a.type === 'emergency_vehicle');
+          if (emergencyAnomaly) {
+            emergencyActive = true;
+            emergencyLane = emergencyAnomaly.laneId;
+          } else if (prev.emergencyActive && prev.elapsedSeconds % 15 === 0) {
+            emergencyActive = false;
+            emergencyLane = null;
+          }
+        }
+
+        // Update current pattern every 60 seconds
+        let currentPattern = prev.currentPattern;
+        if (prev.elapsedSeconds % 60 === 0) {
+          currentPattern = getCurrentPatternPrediction(prev.trafficPatterns);
+        }
+
         return {
           ...prev,
           intersections: updatedIntersections,
@@ -81,6 +146,13 @@ export const useTrafficSimulation = () => {
           predictions,
           mlInsight,
           elapsedSeconds: prev.elapsedSeconds + 1,
+          detections,
+          anomalies,
+          vehicleDistribution,
+          averageSpeed,
+          currentPattern,
+          emergencyActive,
+          emergencyLane,
         };
       });
     }, 1000);
@@ -98,7 +170,6 @@ export const useTrafficSimulation = () => {
 
     setState(prev => {
       const updated = { ...prev, activeScenario: scenarioId };
-      // Update base counts in controllers
       const controller = controllerRef.current[0];
       if (controller) {
         scenario.laneConfigs.forEach(config => {
