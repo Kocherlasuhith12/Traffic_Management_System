@@ -144,6 +144,38 @@ The system follows a **feature-based modular architecture** with clear separatio
 3. **Separation of Concerns**: Rule-based control is independent of ML predictions
 4. **Fairness Guarantee**: Density-priority with round-robin fallback prevents lane starvation
 
+### Signal State Machine & Consistency Guarantee
+
+The `SignalController` implements a **deterministic, cycle-locked state machine** that ensures traffic signals behave exactly like real-world traffic lights:
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                   SIGNAL STATE MACHINE                     │
+│                                                           │
+│   ┌─────────┐    timer=0    ┌────────┐    timer=0         │
+│   │  GREEN   │ ───────────→ │ YELLOW │ ──────────→        │
+│   │ (locked) │              │(locked)│           │        │
+│   └─────────┘              └────────┘           ▼        │
+│       ▲                              ┌──────────────┐    │
+│       │     calculate next timing    │ RED→next GREEN│    │
+│       └────────────────────────────  │  (boundary)   │    │
+│                                      └──────────────┘    │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Cycle Locking Rules:**
+1. Once a GREEN phase starts, the controller is **locked** — no external event can change the signal
+2. Vehicle count and speed updates are continuously tracked but **never reset** the active countdown
+3. Emergency vehicle overrides are **queued** and applied only at the next cycle boundary (GREEN→YELLOW→RED→next GREEN)
+4. New green durations are calculated at the cycle boundary using the latest vehicle data — never mid-cycle
+5. The `cycleLocked` flag prevents any state mutation during GREEN and YELLOW phases
+
+**Why This Matters:**
+- Prevents signal "flickering" caused by rapid data updates
+- Ensures every green phase runs to completion, just like real traffic lights
+- Emergency overrides are handled safely without abrupt signal changes
+- Timer management uses a single decrement-per-tick model with no competing intervals
+
 ---
 
 ## 5. Vehicle Counting Mechanism
