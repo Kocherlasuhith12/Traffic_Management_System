@@ -5,7 +5,6 @@
 ---
 
 ## 📌 Table of Contents
-
 1. [Project Overview](#1-project-overview)
 2. [Problem Statement](#2-problem-statement)
 3. [Dataset Description](#3-dataset-description)
